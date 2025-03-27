@@ -1,9 +1,6 @@
 name: Build and test webR
 
 on:
-  pull_request:
-    branches:
-      - "main"
   workflow_dispatch:
 
 jobs:

@@ -1,11 +1,6 @@
 name: Build, test and deploy webR
 
 on:
-  push:
-    branches:
-      - "main"
-    tags:
-      - "v*.*"
   workflow_dispatch:
 
 jobs:

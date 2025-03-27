@@ -1,0 +1,68 @@
+name: Build and Deploy webR to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build webR
+    runs-on: ubuntu-latest
+    container: ghcr.io/r-wasm/flang-wasm:main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install required system packages
+        run: apt-get update && apt-get install -y gh jq sudo
+      #- uses: r-lib/actions/setup-r@v2
+      #  with:
+      #    use-public-rspm: true
+      #- uses: quarto-dev/quarto-actions/setup@v2
+      #- name: Install required R packages for building documentation
+      #  run: Rscript -e 'install.packages(c("rmarkdown", "rvest"))'
+      - name: Configure webR for flang
+        env:
+          EMFC: /opt/flang/host/bin/flang-new
+        run: ./configure
+      - name: Setup Emscripten PATH
+        run: echo "/opt/emsdk:/opt/emsdk/upstream/emscripten" >> $GITHUB_PATH
+      - name: Set Emscripten EM_NODE_JS
+        run: echo "EM_NODE_JS=$(which node)" >> $GITHUB_ENV
+      - name: Set the webR CDN URL as the BASE_URL
+        run: echo "BASE_URL=https://conjoint-ly.github.io/webr/" > "$HOME/.webr-config.mk"
+        shell: bash
+      - name: Build all optional wasm libs
+        env:
+          EMSDK: /opt/emsdk
+        run: cd libs && make all
+      - name: Build webR
+        env:
+          EMSDK: /opt/emsdk
+        run: make && make check-pr
+        shell: bash
+      #- name: Build webR documentation
+      #  run: cd src/docs && make
+      #  shell: bash
+      - name: Archive webR build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: webr-dist
+          path: |
+            dist
+
+  deploy:
+    name: Deploy webR to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build archive
+        uses: actions/download-artifact@v3
+        with:
+          name: webr-dist
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+          token: ${{ secrets.GITHUB_TOKEN }}
