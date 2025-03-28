@@ -69,13 +69,10 @@ jobs:
 
       - name: List contents of webr-dist
         run: ls -la webr-dist
-
-      - name: Move webr-dist to correct location
-        run: mv webr-dist/* dist/
         
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
-          folder: dist
+          folder: webr-dist
           token: ${{ secrets.GITHUB_TOKEN }}
