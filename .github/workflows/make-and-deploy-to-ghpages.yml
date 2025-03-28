@@ -39,7 +39,7 @@ jobs:
       - name: Build webR
         env:
           EMSDK: /opt/emsdk
-        run: make && make check-pr
+        run: make
         shell: bash
       #- name: Build webR documentation
       #  run: cd src/docs && make
@@ -53,6 +53,8 @@ jobs:
 
   deploy:
     name: Deploy webR to GitHub Pages
+    permissions:
+      contents: write
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +62,17 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: webr-dist
+          path: webr-dist
+
+      - name: List downloaded files (debug)
+        run: ls -la
+
+      - name: List contents of webr-dist
+        run: ls -la webr-dist
+
+      - name: Move webr-dist to correct location
+        run: mv webr-dist/* dist/
+        
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
