@@ -71,8 +71,7 @@ jobs:
         run: ls -la webr-dist
         
       - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          branch: gh-pages
-          folder: webr-dist
-          token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./webr-dist
