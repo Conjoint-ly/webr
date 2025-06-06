@@ -1075,9 +1075,29 @@ test('WebR starts and is usable without lazy filesystem entries', async () => {
   expect(sum).toEqual(276711);
 
   // Confirm no lazy filesystem entries have been added
-  await expect(tempR.FS.lookupPath('/usr/lib/R/doc/NEWS.rds')).rejects.toThrow('FS error');
+  await expect(tempR.FS.lookupPath('/usr/lib/R/doc/NEWS.rds')).rejects.toThrow('ErrnoError');
 
   tempR.close();
+});
+
+test('Async generator streams worker messages', async () => {
+  const tempR = new WebR({ baseUrl: '../dist/' });
+  await tempR.init();
+
+  // Generate some activity
+  await tempR.evalRVoid("print(2048)", { captureStreams: false });
+  tempR.close();
+
+  // Stream stdout messages from the worker
+  const stdout = [];
+  for await (const output of tempR.stream()) {
+    if (output.type == 'stdout') {
+      stdout.push(output.data);
+    }
+  }
+
+  // Confirm expected output
+  expect(stdout).toEqual(expect.arrayContaining(["[1] 2048"]));
 });
 
 beforeEach(() => {

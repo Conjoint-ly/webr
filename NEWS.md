@@ -1,5 +1,41 @@
 # webR (development version)
 
+# webR 0.5.0
+
+## New features
+
+* Updated to R version 4.5.0.
+
+* Added an async generator function `WebR.stream()` to the webR JavaScript API, providing an alternative way to stream output messages from the worker thread (#541).
+
+* Expose Emscripten's `FS.rename()` and `FS.analyzePath()` functions on the `WebR.FS` object in JavaScript (#543).
+
+* Added libaec 1.1.3 to the WebAssembly system libraries (#491).
+
+* Added HDF5 1.12.3 to the WebAssembly system libraries (#540).
+
+## Breaking changes
+
+* Updated to Emscripten version 4.0.8.
+
+* Updated the base LLVM distribution to LLVM 20, rebasing our Fortran for WebAssembly patches on the latest release of LLVM at time of writing (v20.1.4). The LLVM Fortran compiler binary name is now `flang` and webR's build scripts have been updated to reflect this.
+
+* Errors of type `WebRWorkerError` initially caused by Emscripten filesystem errors are now raised with message `"ErrnoError: n"`, where `n` is the error number, rather than the generic `"FS Error"` message.
+
+## Bug Fixes
+
+* (Regression) Fix linking to the FreeType library when building webR (#531).
+
+* Better handle worker loading errors with an error callback in `newCrossOriginWorker` (#539).
+
+# webR 0.4.3
+
+## New features
+
+* Added support for mounting JupyterLite DriveFS filesystems within the webR JupyterLite kernel (#533).
+
+* Updated to R version 4.4.2 (#498).
+
 ## Breaking changes
 
 * The `webr::eval_js()` function can now return other types of R object, not just scalar integers. Returned JavaScript objects are converted to R objects using the `RObject` generic constructor, and specific R object types can be returned by invoking the R object constructor directly in the evaluated JavaScript.
@@ -7,6 +43,8 @@
 * When explicitly creating a list using the `RList` constructor, nested JavaScript objects at a deeper level are also converted into R list objects. This does not affect the generic `RObject` constructor, as the default is for JavaScript objects to map to R `data.frame` objects using the `RDataFrame` constructor.
 
 ## Bug Fixes
+
+* Added a workaround for compiling against older FreeType (#485).
 
 * (Regression) Mounting filesystem images using the `WORKERFS` filesystem type now works again in the browser using the JavaScript API from the main thread (#488).
 
