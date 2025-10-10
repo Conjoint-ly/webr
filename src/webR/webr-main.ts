@@ -5,8 +5,8 @@
 
 import { ChannelMain } from './chan/channel';
 import { newChannelMain, ChannelType } from './chan/channel-common';
-import { Message } from './chan/message';
-import { BASE_URL, PKG_BASE_URL, WEBR_VERSION } from './config';
+import { CloseWebSocketMessage, Message, PostMessageWorkerMessage, ProxyWebSocketMessage, ProxyWorkerMessage, SendWebSocketMessage, TerminateWorkerMessage } from './chan/message';
+import { BASE_URL, PKG_BASE_URL, WEBR_VERSION, R_VERSION } from './config';
 import { EmPtr } from './emscripten';
 import { WebRPayloadPtr } from './payload';
 import { newRProxy, newRClassProxy } from './proxy';
@@ -36,6 +36,8 @@ import {
   FSRenameMessage,
   FSAnalyzePathMessage,
 } from './webr-chan';
+import { WebSocketMap } from './chan/proxy-websocket';
+import { WorkerMap } from './chan/proxy-worker';
 
 export { Console, ConsoleCallbacks } from './console';
 export * from './robj-main';
@@ -108,11 +110,11 @@ export type FSType = 'NODEFS' | 'WORKERFS' | 'IDBFS' | 'DRIVEFS';
  * Emscripten
  */
 export type FSMountOptions<T extends FSType = FSType> =
-  T extends 'DRIVEFS' ? { driveName?: string; } :
+  T extends 'DRIVEFS' ? { driveName?: string; browsingContextId?: string } :
   T extends 'NODEFS' ? { root: string } : {
-    blobs?: Array<{ name: string, data: Blob | ArrayBufferLike }>;
+    blobs?: Array<{ name: string, data: Blob | ArrayBufferLike | Uint8Array }>;
     files?: Array<File | FileList>;
-    packages?: Array<{ metadata: FSMetaData, blob: Blob | ArrayBufferLike }>;
+    packages?: Array<{ metadata: FSMetaData, blob: Blob | ArrayBufferLike | Uint8Array }>;
   };
 
 /**
@@ -204,8 +206,10 @@ const defaultEnv = {
   FONTCONFIG_PATH: '/etc/fonts',
   R_HOME: '/usr/lib/R',
   R_ENABLE_JIT: '0',
+  ALL_PROXY: 'socks5h://localhost:8580',
   WEBR: '1',
   WEBR_VERSION: WEBR_VERSION,
+  R_VERSION: R_VERSION,
 };
 
 const defaultOptions = {
@@ -229,9 +233,12 @@ const defaultOptions = {
  */
 export class WebR {
   #chan: ChannelMain;
+  #ws: WebSocketMap;
+  #workers: WorkerMap;
   #initialised: Promise<unknown>;
   globalShelter!: Shelter;
   version: string = WEBR_VERSION;
+  versionR: string = R_VERSION;
 
   RObject!: ReturnType<typeof newRClassProxy<typeof RWorker.RObject, RObject>>;
   RLogical!: ReturnType<typeof newRClassProxy<typeof RWorker.RLogical, RLogical>>;
@@ -269,6 +276,8 @@ export class WebR {
       }
     };
     this.#chan = newChannelMain(config);
+    this.#ws = new WebSocketMap(this.#chan);
+    this.#workers = new WorkerMap(this.#chan);
 
     this.objs = {} as typeof this.objs;
     this.Shelter = newShelterProxy(this.#chan);
@@ -330,6 +339,36 @@ export class WebR {
             msg.data.args
           );
           break;
+        case 'proxyWebSocket': {
+          const message = msg as ProxyWebSocketMessage;
+          this.#ws.new(message.data.uuid, message.data.url, message.data.protocol);
+          break;
+        }
+        case 'sendWebSocket': {
+          const message = msg as SendWebSocketMessage;
+          this.#ws.send(message.data.uuid, message.data.data);
+          break;
+        }
+        case 'closeWebSocket': {
+          const message = msg as CloseWebSocketMessage;
+          this.#ws.close(message.data.uuid, message.data.code, message.data.reason);
+          break;
+        }
+        case 'proxyWorker': {
+          const message = msg as ProxyWorkerMessage;
+          this.#workers.new(message.data.uuid, message.data.url, message.data.options);
+          break;
+        }
+        case 'postMessageWorker': {
+          const message = msg as PostMessageWorkerMessage;
+          this.#workers.postMessage(message);
+          break;
+        }
+        case 'terminateWorker': {
+          const message = msg as TerminateWorkerMessage;
+          this.#workers.terminate(message.data.uuid);
+          break;
+        }
         case 'console.log':
           console.log(msg.data);
           break;
@@ -370,7 +409,7 @@ export class WebR {
    * @yields {Promise<Message>} Output messages from the communication channel.
    */
   async *stream(): AsyncGenerator<Message, void> {
-    for (;;) {
+    for (; ;) {
       const output = await this.#chan.read();
       if (output.type === 'closed') {
         return;

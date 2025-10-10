@@ -67,9 +67,12 @@ RUN curl -L https://rig.r-pkg.org/deb/rig.gpg -o /etc/apt/trusted.gpg.d/rig.gpg 
 # Because $HOME gets masked by GHA with the host $HOME
 ENV R_LIBS_USER=/opt/R/current/lib/R/site-library
 # Don't install pak. Rig installs it into the user lib, but we want it in the system lib
-RUN rig add 4.5.0 --without-pak
+RUN rig add 4.5.1 --without-pak
 # Install pak and rwasm into the system lib
 RUN /opt/R/current/bin/R -q -e 'install.packages("pak", lib = .Library)'
+# Temporary workaround for pak `deps::` issue.
+# TODO: Remove this once the next version of pak has released
+RUN /opt/R/current/bin/R -q -e 'pak::pak("r-lib/pak@main", lib = .Library)'
 RUN /opt/R/current/bin/R -q -e 'pak::pak("r-wasm/rwasm", lib = .Library)'
 
 # Setup P3M

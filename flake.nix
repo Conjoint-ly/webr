@@ -26,7 +26,7 @@
             #     cd src; prefetch-npm-deps package-lock.json
             srcNpmDeps = pkgs.fetchNpmDeps {
               src = "${self}/src";
-              hash = "sha256-nL8tN9uXehC+aoH80fApliGCn8ybVIkyHWWsES9sXxw=";
+              hash = "sha256-5WrA1/s3vhxxN8BBlcMbRKWmHpdPQnMcJzANLmSxY60=";
             };
 
             inherit system;
@@ -37,7 +37,7 @@
         ({ pkgs, pkg-flang-wasm, system, srcNpmDeps, ... }: {
           default = pkgs.stdenv.mkDerivation {
             name = "webr";
-            src = ./.;
+            src = self;
 
             nativeBuildInputs = with pkgs; [
               pkg-flang-wasm

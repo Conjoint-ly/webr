@@ -1,5 +1,5 @@
 import { promiseHandles, newCrossOriginWorker, isCrossOrigin } from '../utils';
-import { Message, Response, SyncRequest } from './message';
+import { EventMessage, Message, PostMessageWorkerMessage, Response, SyncRequest, WebSocketCloseMessage, WebSocketMessage, WebSocketOpenMessage, WorkerErrorMessage, WorkerMessage, WorkerMessageErrorMessage } from './message';
 import { Endpoint } from './task-common';
 import { syncResponse } from './task-main';
 import { ChannelMain, ChannelWorker } from './channel';
@@ -16,7 +16,7 @@ if (IN_NODE) {
 // Main ----------------------------------------------------------------
 
 export class SharedBufferChannelMain extends ChannelMain {
-  #interruptBuffer?: Int32Array;
+  #eventBuffer?: Int32Array;
 
   initialised: Promise<unknown>;
   resolve: (_?: unknown) => void;
@@ -54,12 +54,17 @@ export class SharedBufferChannelMain extends ChannelMain {
     }
   }
 
-  interrupt() {
-    if (!this.#interruptBuffer) {
+  emit(msg: Message): void {
+    if (!this.#eventBuffer) {
       throw new WebRChannelError('Failed attempt to interrupt before initialising interruptBuffer');
     }
+    this.eventQueue.push({ type: 'event', data: { msg } });
+    this.#eventBuffer[0] = 1;
+  }
+
+  interrupt() {
     this.inputQueue.reset();
-    this.#interruptBuffer[0] = 1;
+    this.emit({ type: 'interrupt' });
   }
 
   #handleEventsFromWorker(worker: Worker) {
@@ -92,7 +97,7 @@ export class SharedBufferChannelMain extends ChannelMain {
 
     switch (message.type) {
       case 'resolve':
-        this.#interruptBuffer = new Int32Array(message.data as SharedArrayBuffer);
+        this.#eventBuffer = new Int32Array(message.data as SharedArrayBuffer);
         this.resolve();
         return;
 
@@ -119,6 +124,46 @@ export class SharedBufferChannelMain extends ChannelMain {
             await syncResponse(worker, reqData, response);
             break;
           }
+          case 'event': {
+            const response = this.eventQueue.shift();
+            await syncResponse(worker, reqData, response);
+            break;
+          }
+          case 'eval-await': {
+            const src = payload.data as string;
+            const data = {} as { result?: any; error?: string };
+            try {
+              data.result = await (0, eval)(src) as unknown;
+              if (typeof data.result === 'function') {
+                // Don't try to transfer a function back to the worker thread
+                data.result = String(data.result);
+              }
+            } catch (_error) {
+              const error = _error as Error;
+              data.error = error.message;
+            }
+            await syncResponse(worker, reqData, { type: 'eval-response', data });
+            break;
+          }
+          case 'post-message-worker': {
+            const message = payload.data as PostMessageWorkerMessage['data'];
+            message.handles = promiseHandles();
+            this.systemQueue.put({ type: 'postMessageWorker', data: message });
+
+            if (message.async) {
+              await syncResponse(worker, reqData, { type: 'post-message-response' });
+            } else {
+              message.handles.promise.then(
+                (value) => {
+                  void syncResponse(worker, reqData, { type: 'post-message-response', data: { result: value } });
+                },
+                (error) => {
+                  void syncResponse(worker, reqData, { type: 'post-message-response', data: { error: String(error) } });
+                }
+              );
+            }
+            break;
+          }
           default:
             throw new WebRChannelError(`Unsupported request type '${payload.type}'.`);
         }
@@ -134,38 +179,53 @@ export class SharedBufferChannelMain extends ChannelMain {
 
 // Worker --------------------------------------------------------------
 
-import { SyncTask, setInterruptHandler, setInterruptBuffer } from './task-worker';
+import { setEventBuffer, setEventsHandler, SyncTask } from './task-worker';
 import { Module } from '../emscripten';
+import { WebSocketProxy, WebSocketProxyFactory } from './proxy-websocket';
+import { WorkerProxy, WorkerProxyFactory } from './proxy-worker';
 
 export class SharedBufferChannelWorker implements ChannelWorker {
+  WebSocketProxy: typeof WebSocket;
+  WorkerProxy: typeof Worker;
+  ws: Map<string, WebSocketProxy>;
+  workers: Map<string, WorkerProxy>;
   #ep: Endpoint;
   #dispatch: (msg: Message) => void = () => 0;
-  #interruptBuffer = new Int32Array(new SharedArrayBuffer(4));
+  #eventBuffer = new Int32Array(new SharedArrayBuffer(4));
   #interrupt = () => { return; };
-  onMessageFromMainThread: (msg: Message) => void = () => { return; };
+  resolveRequest: (msg: Message) => void = () => { return; };
 
   constructor() {
     this.#ep = (IN_NODE ? require('worker_threads').parentPort : globalThis) as Endpoint;
-    setInterruptBuffer(this.#interruptBuffer.buffer);
-    setInterruptHandler(() => this.handleInterrupt());
+    setEventBuffer(this.#eventBuffer.buffer);
+    setEventsHandler(() => this.handleEvents());
+
+    // Event functionality to be handled via proxy to main thread
+    this.WebSocketProxy = WebSocketProxyFactory.proxy(this);
+    this.ws = new Map();
+    this.WorkerProxy = WorkerProxyFactory.proxy(this);
+    this.workers = new Map();
   }
 
   resolve() {
-    this.write({ type: 'resolve', data: this.#interruptBuffer.buffer });
+    this.write({ type: 'resolve', data: this.#eventBuffer.buffer });
   }
 
-  write(msg: Message, transfer?: [Transferable]) {
+  write(msg: Message, transfer?: Transferable[]) {
     this.#ep.postMessage(msg, transfer);
   }
 
-  writeSystem(msg: Message, transfer?: [Transferable]) {
+  writeSystem(msg: Message, transfer?: Transferable[]) {
     this.#ep.postMessage({ type: 'system', data: msg }, transfer);
   }
 
-  read(): Message {
-    const msg = { type: 'read' } as Message;
-    const task = new SyncTask(this.#ep, msg);
+  syncRequest(msg: Message, transfer?: Transferable[]): Message {
+    const task = new SyncTask(this.#ep, msg, transfer);
     return task.syncify() as Message;
+  }
+
+  read(): Message {
+    return this.syncRequest({ type: 'read' });
   }
 
   inputOrDispatch(): number {
@@ -179,7 +239,7 @@ export class SharedBufferChannelWorker implements ChannelWorker {
   }
 
   run(args: string[]) {
-    try{
+    try {
       Module.callMain(args);
     } catch (e) {
       if (e instanceof WebAssembly.RuntimeError) {
@@ -194,15 +254,60 @@ export class SharedBufferChannelWorker implements ChannelWorker {
     }
   }
 
-  setInterrupt(interrupt: () => void) {
-    this.#interrupt = interrupt;
+  handleEvents() {
+    if (this.#eventBuffer[0] !== 0) {
+      for (; ;) {
+        const response = this.syncRequest({ type: 'event' }) as EventMessage | undefined;
+        if (!response) break;
+        switch (response.data.msg.type) {
+          case 'interrupt':
+            this.#interrupt();
+            break;
+          case 'websocket-open': {
+            const message = response.data.msg as WebSocketOpenMessage;
+            this.ws.get(message.data.uuid)?._accept();
+            break;
+          }
+          case 'websocket-message': {
+            const message = response.data.msg as WebSocketMessage;
+            this.ws.get(message.data.uuid)?._recieve(message.data.data);
+            break;
+          }
+          case 'websocket-close': {
+            const message = response.data.msg as WebSocketCloseMessage;
+            this.ws.get(message.data.uuid)?._close(message.data.code, message.data.reason);
+            break;
+          }
+          case 'websocket-error': {
+            const message = response.data.msg as WebSocketMessage;
+            this.ws.get(message.data.uuid)?._error();
+            break;
+          }
+          case 'worker-message': {
+            const message = response.data.msg as WorkerMessage;
+            this.workers.get(message.data.uuid)?._message(message.data.data);
+            break;
+          }
+          case 'worker-messageerror': {
+            const message = response.data.msg as WorkerMessageErrorMessage;
+            this.workers.get(message.data.uuid)?._messageerror(message.data.data);
+            break;
+          }
+          case 'worker-error': {
+            const message = response.data.msg as WorkerErrorMessage;
+            this.workers.get(message.data.uuid)?._error();
+            break;
+          }
+          default:
+            throw new Error(`Unsupported event type '${response.data.msg.type}'.`);
+        }
+      }
+      this.#eventBuffer[0] = 0;
+    }
   }
 
-  handleInterrupt() {
-    if (this.#interruptBuffer[0] !== 0) {
-      this.#interruptBuffer[0] = 0;
-      this.#interrupt();
-    }
+  setInterrupt(interrupt: () => void) {
+    this.#interrupt = interrupt;
   }
 
   setDispatchHandler(dispatch: (msg: Message) => void) {

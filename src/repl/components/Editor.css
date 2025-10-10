@@ -1,9 +1,11 @@
 #editor {
   position: relative;
+  background-color: var(--bg-primary);
 }
 
 .editor-header {
   display: flex;
+  flex-wrap: wrap-reverse;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--bg-dark);
@@ -13,12 +15,6 @@
 .editor-container, .data-container {
   flex: 1;
   overflow: auto;
-}
-
-.editor-actions {
-  position: absolute;
-  top: 5px;
-  right: 0;
 }
 
 .editor-actions>button {
@@ -35,6 +31,7 @@
 
 .editor-files {
   display: flex;
+  flex-wrap: wrap;
 }
 
 .editor-file {

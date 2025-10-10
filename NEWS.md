@@ -1,5 +1,75 @@
 # webR (development version)
 
+# webR 0.5.6
+
+## New features
+
+* Added shim for `requireNamespace` R function (#570).
+
+* Added CSS media query for system dark mode (#572).
+
+* Proxy Web Worker communication through the main thread when using the `SharedArrayBuffer` communication channel (#576).
+
+* The R version is now exposed at `webR.versionR` and as the `R_VERSION` environment variable (#577).
+
+# webR 0.5.5
+
+## New features
+
+* Proxy WebSocket communication through the main thread when using the `SharedArrayBuffer` communication channel (#562).
+
+* Added support for `webr::eval_js(..., await = TRUE)`.
+
+* Updated OpenSSL to version 3.5.1 (#564).
+
+* Added a SSL cacert bundle to the Emscripten VFS (#562).
+
+* Added support mechanism for running `curl` and `httr2` using a WebSocket proxy + SOCKS tunnel running outside the browser (#562).
+
+* Minor UI, favicon, and Open Graph metadata tweaks to the webR application.
+
+## Breaking changes
+
+* Removed the service worker communication channel. This channel has been deprecated for a while now, and was never chosen in `Automatic` mode (#562).
+
+# webR 0.5.4
+
+## New features
+
+* Support sharing URLs and initial editor file population in the webR application. See `src/examples/embed/` for an example of iframe embedding with `postMessage()`. (#554)
+
+## Breaking changes
+
+* Updated Fontconfig to version 2.15.0 (#544).
+
+## Bug Fixes
+
+* (Regression, again) Fix linking to the FreeType library when building webR (See #504 for details).
+
+# webR 0.5.3
+
+## Bug Fixes
+
+* Raise initial memory default (#552).
+
+* Use the `self` flake input in `flake.nix`.
+
+# webR 0.5.2
+
+## Bug Fixes
+
+* Install correct R version 4.5.1 in the webR Docker container.
+
+# webR 0.5.1
+
+## New features
+
+* Updated to R version 4.5.1.
+
+## Breaking changes
+
+* Upgraded JupyterLite DriveFS filesystem to v0.6.2, for use with JupyterLite v0.6.0 and later (#549).
+
 # webR 0.5.0
 
 ## New features

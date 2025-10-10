@@ -3,21 +3,22 @@ import { WebRError } from './error';
 import { isComplex, isWebRDataJs } from './robj';
 import { RObjectBase } from './robj-worker';
 
-export type ResolveFn = (_value?: unknown) => void;
+export type PromiseHandles<T = void> = {
+    resolve: ResolveFn<T>;
+    reject: RejectFn;
+    promise: Promise<T>;
+};
+export type ResolveFn<T = unknown> = (value: T | PromiseLike<T>) => void;
 export type RejectFn = (_reason?: any) => void;
 
-export function promiseHandles() {
+export function promiseHandles<T = void>(): PromiseHandles<T> {
   const out = {
-    resolve: () => { return; },
-    reject: () => { return; },
-    promise: Promise.resolve(),
-  } as {
-    resolve: ResolveFn,
-    reject: RejectFn,
-    promise: Promise<unknown>,
+    resolve: (() => { return; }) as ResolveFn<T>,
+    reject: (() => { return; }) as RejectFn,
+    promise: Promise.resolve() as Promise<T>,
   };
 
-  const promise = new Promise((resolve, reject) => {
+  const promise = new Promise<T>((resolve, reject) => {
     out.resolve = resolve;
     out.reject = reject;
   });
@@ -78,13 +79,19 @@ export function replaceInObject<T>(
  * no longer cross-origin. In that case, the cross-origin restriction
  * bypass is not possible, and the script is permitted to be loaded.
  */
-export function newCrossOriginWorker(url: string, cb: (worker: Worker) => void, onError?: (error: Error) => void): void {
+export function newCrossOriginWorker(
+  url: string,
+  cb: (worker: Worker) => void,
+  onError?: (error: Error) => void,
+  options?: WorkerOptions,
+  async = true,
+): void {
   const req = new XMLHttpRequest();
-  req.open('get', url, true);
+  req.open('get', url, async);
   req.onload = () => {
     if (req.status >= 200 && req.status < 300) {
       try {
-        const worker = new Worker(URL.createObjectURL(new Blob([req.responseText])));
+        const worker = new Worker(URL.createObjectURL(new Blob([req.responseText])), options);
         cb(worker);
       } catch (error) {
         if (onError) {
@@ -158,4 +165,14 @@ export function bufferToBase64(buffer: ArrayBuffer) {
     binary += String.fromCharCode(bytes[i]);
   }
   return window.btoa(binary);
+}
+
+// From https://stackoverflow.com/a/21797381
+export function base64ToBuffer(base64: string) {
+    const binaryString = window.atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
 }
